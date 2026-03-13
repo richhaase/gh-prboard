@@ -1,11 +1,9 @@
 package cmd
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/cli/go-gh/v2/pkg/api"
 	"github.com/spf13/cobra"
@@ -15,21 +13,25 @@ import (
 )
 
 var reposDiscoverCmd = &cobra.Command{
-	Use:   "discover",
-	Short: "Discover repos from configured orgs",
+	Use:   "discover [org]",
+	Short: "Discover repos from configured orgs or a specific org",
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
 			return err
 		}
 
-		if len(cfg.Orgs) == 0 {
-			fmt.Fprintln(os.Stderr, "No orgs configured. Add an org to your config file:")
-			fmt.Fprintf(os.Stderr, "  %s\n", config.DefaultPath())
-			fmt.Fprintln(os.Stderr, "\nExample:")
-			fmt.Fprintln(os.Stderr, "  orgs:")
-			fmt.Fprintln(os.Stderr, "    - your-org")
-			return nil
+		var orgs []string
+		if len(args) == 1 {
+			orgs = []string{args[0]}
+		} else {
+			orgs = cfg.Orgs
+			if len(orgs) == 0 {
+				fmt.Fprintln(os.Stderr, "No orgs configured. Run `gh prboard init` to get started.")
+				fmt.Fprintln(os.Stderr, "Or specify an org directly: gh prboard repos discover <org>")
+				return nil
+			}
 		}
 
 		client, err := api.DefaultGraphQLClient()
@@ -38,7 +40,7 @@ var reposDiscoverCmd = &cobra.Command{
 			return err
 		}
 
-		repos, err := ghapi.DiscoverRepos(client, cfg.Orgs)
+		repos, err := ghapi.DiscoverRepos(client, orgs)
 		if err != nil {
 			return fmt.Errorf("discovering repos: %w", err)
 		}
@@ -57,7 +59,7 @@ var reposDiscoverCmd = &cobra.Command{
 			reposByOrg[org] = append(reposByOrg[org], r)
 		}
 
-		for _, org := range cfg.Orgs {
+		for _, org := range orgs {
 			orgRepos := reposByOrg[org]
 			fmt.Printf("Repos in %s (%d found):\n\n", org, len(orgRepos))
 			for _, r := range orgRepos {
@@ -65,26 +67,23 @@ var reposDiscoverCmd = &cobra.Command{
 				if watched[r.FullName] {
 					tag = "[watching]"
 				}
-				fmt.Printf("  %s  %-45s pushed %s\n", tag, r.FullName, formatRelativeTime(r.PushedAt))
+				fmt.Printf("  %s  %-45s pushed %s\n", tag, r.FullName, FormatRelativeTime(r.PushedAt))
 			}
 			fmt.Println()
 		}
 
 		fmt.Println("Add/remove repos (prefix with - to remove, 'done' to finish):")
-		scanner := bufio.NewScanner(os.Stdin)
 		for {
-			fmt.Print("> ")
-			if !scanner.Scan() {
+			input, err := PromptLine("> ")
+			if err != nil {
 				break
 			}
-			input := strings.TrimSpace(scanner.Text())
 			if input == "done" {
 				break
 			}
 
 			if strings.HasPrefix(input, "-") {
-				name := strings.TrimPrefix(input, "-")
-				name = strings.TrimSpace(name)
+				name := strings.TrimSpace(strings.TrimPrefix(input, "-"))
 				if cfg.RemoveRepo(name) {
 					fmt.Printf("  Removed %s\n", name)
 				} else {
@@ -103,26 +102,6 @@ var reposDiscoverCmd = &cobra.Command{
 		fmt.Println("Config updated.")
 		return nil
 	},
-}
-
-func formatRelativeTime(t time.Time) string {
-	d := time.Since(t)
-	hours := int(d.Hours())
-	if hours < 1 {
-		return "just now"
-	}
-	if hours < 24 {
-		return fmt.Sprintf("%dh ago", hours)
-	}
-	days := hours / 24
-	if days < 7 {
-		return fmt.Sprintf("%dd ago", days)
-	}
-	if days < 30 {
-		return fmt.Sprintf("%dw ago", days/7)
-	}
-	months := days / 30
-	return fmt.Sprintf("%dmo ago", months)
 }
 
 func init() {

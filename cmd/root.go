@@ -45,9 +45,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(cfg.Repos) == 0 {
-		fmt.Fprintln(os.Stderr, "No repos configured. Get started with:")
-		fmt.Fprintln(os.Stderr, "  gh prboard repos add owner/repo")
-		fmt.Fprintln(os.Stderr, "  gh prboard repos discover")
+		fmt.Fprintln(os.Stderr, "No repos configured. Run `gh prboard init` to get started.")
 		return nil
 	}
 
@@ -98,7 +96,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	// Resolve username for --mine
 	username := cfg.Defaults.Username
 	if flagMine && username == "" {
-		username, err = resolveUsername(client)
+		username, err = ghapi.FetchUsername(client)
 		if err != nil {
 			return fmt.Errorf("could not detect username: %w", err)
 		}
@@ -137,15 +135,3 @@ func filterPRs(prs []ghapi.PR, username string) []ghapi.PR {
 	return filtered
 }
 
-func resolveUsername(client *api.GraphQLClient) (string, error) {
-	var query struct {
-		Viewer struct {
-			Login string
-		}
-	}
-	err := client.Query("CurrentUser", &query, nil)
-	if err != nil {
-		return "", err
-	}
-	return query.Viewer.Login, nil
-}
