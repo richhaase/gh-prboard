@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rdh/gh-prboard/github"
+	"github.com/richhaase/gh-prboard/github"
 )
 
 // RenderPRs formats a list of PRs into the terminal output format.

@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rdh/gh-prboard/config"
+	"github.com/richhaase/gh-prboard/config"
 )
 
 var addGroupFlag string

@@ -1,0 +1,22 @@
+version: "2"
+
+run:
+  timeout: 10m
+  tests: true
+
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - gosec
+    - errcheck
+    - misspell
+    - unused
+    - ineffassign
+    - nolintlint
+
+issues:
+  exclude-rules:
+    - linters:
+        - gosec
+      text: "G104|G115|G204|G301|G302|G304|G404"

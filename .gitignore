@@ -1,0 +1,5 @@
+bin/
+gh-prboard
+dist/
+coverage.out
+coverage.html

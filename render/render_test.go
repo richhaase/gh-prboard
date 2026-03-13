@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rdh/gh-prboard/github"
+	"github.com/richhaase/gh-prboard/github"
 )
 
 func TestRenderPRs_GroupedOutput(t *testing.T) {

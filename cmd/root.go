@@ -7,9 +7,9 @@ import (
 	"github.com/cli/go-gh/v2/pkg/api"
 	"github.com/spf13/cobra"
 
-	"github.com/rdh/gh-prboard/config"
-	ghapi "github.com/rdh/gh-prboard/github"
-	"github.com/rdh/gh-prboard/render"
+	"github.com/richhaase/gh-prboard/config"
+	ghapi "github.com/richhaase/gh-prboard/github"
+	"github.com/richhaase/gh-prboard/render"
 )
 
 var (

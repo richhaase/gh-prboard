@@ -1,4 +1,4 @@
-module github.com/rdh/gh-prboard
+module github.com/richhaase/gh-prboard
 
 go 1.26.1
 
