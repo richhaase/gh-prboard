@@ -15,8 +15,13 @@ linters:
     - ineffassign
     - nolintlint
 
-issues:
-  exclude-rules:
-    - linters:
-        - gosec
-      text: "G104|G115|G204|G301|G302|G304|G404"
+  settings:
+    gosec:
+      excludes:
+        - G104
+        - G115
+        - G204
+        - G301
+        - G302
+        - G304
+        - G404
