@@ -93,3 +93,15 @@ func discoverOrgRepos(client *api.GraphQLClient, org string) ([]DiscoveredRepo, 
 
 	return allRepos, nil
 }
+
+// FilterByAge returns repos that were pushed within the given duration.
+func FilterByAge(repos []DiscoveredRepo, maxAge time.Duration) []DiscoveredRepo {
+	var filtered []DiscoveredRepo
+	cutoff := time.Now().Add(-maxAge)
+	for _, r := range repos {
+		if r.PushedAt.After(cutoff) {
+			filtered = append(filtered, r)
+		}
+	}
+	return filtered
+}
