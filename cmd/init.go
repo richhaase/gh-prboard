@@ -15,7 +15,7 @@ import (
 )
 
 const repoMaxAge = 90 * 24 * time.Hour // 90 days
-const repoDisplayCap = 50              // per org
+const repoDisplayCap = 50              // per source
 
 var initCmd = &cobra.Command{
 	Use:   "init",
@@ -41,6 +41,75 @@ func promptSelection(prompt string, max int) ([]int, error) {
 		}
 		return indices, nil
 	}
+}
+
+// selectAndGroupRepos displays a list of repos, lets the user pick, then assign groups.
+// groupNames is carried across calls so shortcuts accumulate.
+func selectAndGroupRepos(cfg *config.Config, repos []ghapi.DiscoveredRepo, label string, groupNames *[]string) error {
+	if len(repos) > repoDisplayCap {
+		repos = repos[:repoDisplayCap]
+	}
+
+	fmt.Printf("\nActive repos in %s (%d found, pushed in last 90 days):\n", label, len(repos))
+	for i, r := range repos {
+		fmt.Printf("  %d. %-45s pushed %s\n", i+1, r.FullName, FormatRelativeTime(r.PushedAt))
+	}
+	fmt.Println()
+
+	indices, err := promptSelection("Select repos to watch (e.g. 1-3,5 or all): ", len(repos))
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("\nAssign groups to repos (enter to skip):")
+	for _, repoIdx := range indices {
+		repo := repos[repoIdx-1]
+		prompt := fmt.Sprintf("  %s group", repo.FullName)
+		if len(*groupNames) > 0 {
+			shortcuts := make([]string, len(*groupNames))
+			for i, g := range *groupNames {
+				shortcuts[i] = fmt.Sprintf("%d=%s", i+1, g)
+			}
+			prompt += fmt.Sprintf(" [%s]", strings.Join(shortcuts, ", "))
+		}
+		prompt += ": "
+
+		groupInput, err := PromptLine(prompt)
+		if err != nil {
+			return err
+		}
+
+		group := ""
+		if groupInput != "" {
+			// Check if it's a numbered shortcut
+			var shortcutNum int
+			if n, parseErr := fmt.Sscanf(groupInput, "%d", &shortcutNum); n == 1 && parseErr == nil {
+				if shortcutNum >= 1 && shortcutNum <= len(*groupNames) {
+					group = (*groupNames)[shortcutNum-1]
+				} else {
+					group = groupInput
+				}
+			} else {
+				group = groupInput
+			}
+
+			// Track new group names
+			isNew := true
+			for _, g := range *groupNames {
+				if g == group {
+					isNew = false
+					break
+				}
+			}
+			if isNew {
+				*groupNames = append(*groupNames, group)
+			}
+		}
+
+		cfg.AddRepo(repo.FullName, group)
+	}
+
+	return nil
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
@@ -83,153 +152,107 @@ func runInit(cmd *cobra.Command, args []string) error {
 	cfg.Defaults.Username = username
 	cfg.Defaults.HideDrafts = true
 
-	// Step 2: Discover orgs
+	var groupNames []string
+
+	// Step 2: Discover personal repos
+	fmt.Println("Discovering your repos...")
+	userRepos, err := ghapi.DiscoverUserRepos(client)
+	if err != nil {
+		return fmt.Errorf("discovering repos: %w", err)
+	}
+
+	recentUserRepos := ghapi.FilterByAge(userRepos, repoMaxAge)
+	if len(recentUserRepos) == 0 {
+		fmt.Println("No personal repos found with activity in the last 90 days.")
+	} else {
+		if err := selectAndGroupRepos(cfg, recentUserRepos, username, &groupNames); err != nil {
+			return err
+		}
+	}
+	fmt.Println()
+
+	// Step 3: Optionally discover org repos
 	orgs, err := ghapi.FetchOrgs(client)
 	if err != nil {
 		return fmt.Errorf("fetching orgs: %w", err)
 	}
 
-	var selectedOrgs []string
-	if len(orgs) == 0 {
-		fmt.Println("No organizations found for your account.")
-		fmt.Println("You can add repos manually later with: gh prboard repos add owner/repo")
-		fmt.Println()
-	} else {
+	if len(orgs) > 0 {
 		fmt.Printf("Found %d organizations:\n", len(orgs))
 		for i, org := range orgs {
 			fmt.Printf("  %d. %s\n", i+1, org)
 		}
 		fmt.Println()
 
-		indices, err := promptSelection("Select orgs to watch (e.g. 1,3 or all): ", len(orgs))
+		input, err := PromptLine("Select orgs to include (e.g. 1,3 or all), or enter to skip: ")
 		if err != nil {
 			return err
 		}
 
-		for _, idx := range indices {
-			selectedOrgs = append(selectedOrgs, orgs[idx-1])
-		}
+		if input != "" {
+			indices, err := ParseNumberSelection(input, len(orgs))
+			if err != nil {
+				fmt.Printf("Invalid selection: %v. Skipping orgs.\n", err)
+			} else {
+				var selectedOrgs []string
+				for _, idx := range indices {
+					selectedOrgs = append(selectedOrgs, orgs[idx-1])
+				}
 
-		// Merge orgs into config
-		existingOrgs := map[string]bool{}
-		for _, o := range cfg.Orgs {
-			existingOrgs[o] = true
-		}
-		for _, o := range selectedOrgs {
-			if !existingOrgs[o] {
-				cfg.Orgs = append(cfg.Orgs, o)
-			}
-		}
-		fmt.Println()
-	}
-
-	// Step 3: Discover repos (per-org with per-org display cap)
-	if len(selectedOrgs) > 0 {
-		fmt.Println("Discovering repos...")
-		allRepos, err := ghapi.DiscoverRepos(client, selectedOrgs)
-		if err != nil {
-			return fmt.Errorf("discovering repos: %w", err)
-		}
-
-		recentRepos := ghapi.FilterByAge(allRepos, repoMaxAge)
-
-		if len(recentRepos) == 0 {
-			fmt.Printf("No repos found with activity in the last 90 days.\n")
-			fmt.Println("You can add repos manually: gh prboard repos add owner/repo")
-		} else {
-			// Group by org, cap per org
-			var groupNames []string
-
-			for _, org := range selectedOrgs {
-				var orgRepos []ghapi.DiscoveredRepo
-				for _, r := range recentRepos {
-					parts := strings.SplitN(r.FullName, "/", 2)
-					if parts[0] == org {
-						orgRepos = append(orgRepos, r)
+				// Merge orgs into config
+				existingOrgs := map[string]bool{}
+				for _, o := range cfg.Orgs {
+					existingOrgs[o] = true
+				}
+				for _, o := range selectedOrgs {
+					if !existingOrgs[o] {
+						cfg.Orgs = append(cfg.Orgs, o)
 					}
 				}
-				if len(orgRepos) == 0 {
-					continue
-				}
 
-				// Cap per org
-				if len(orgRepos) > repoDisplayCap {
-					orgRepos = orgRepos[:repoDisplayCap]
-				}
-
-				fmt.Printf("\nActive repos in %s (%d found, pushed in last 90 days):\n", org, len(orgRepos))
-				for i, r := range orgRepos {
-					fmt.Printf("  %d. %-45s pushed %s\n", i+1, r.FullName, FormatRelativeTime(r.PushedAt))
-				}
-				fmt.Println()
-
-				indices, err := promptSelection("Select repos to watch (e.g. 1-3,5 or all): ", len(orgRepos))
+				// Discover org repos
+				fmt.Println("\nDiscovering org repos...")
+				orgRepos, err := ghapi.DiscoverRepos(client, selectedOrgs)
 				if err != nil {
-					return err
+					return fmt.Errorf("discovering repos: %w", err)
 				}
 
-				// Step 4: Group assignment for selected repos
-				fmt.Println("\nAssign groups to repos (enter to skip):")
-				for _, repoIdx := range indices {
-					repo := orgRepos[repoIdx-1]
-					prompt := fmt.Sprintf("  %s group", repo.FullName)
-					if len(groupNames) > 0 {
-						shortcuts := make([]string, len(groupNames))
-						for i, g := range groupNames {
-							shortcuts[i] = fmt.Sprintf("%d=%s", i+1, g)
+				recentOrgRepos := ghapi.FilterByAge(orgRepos, repoMaxAge)
+				for _, org := range selectedOrgs {
+					var thisOrgRepos []ghapi.DiscoveredRepo
+					for _, r := range recentOrgRepos {
+						parts := strings.SplitN(r.FullName, "/", 2)
+						if parts[0] == org {
+							thisOrgRepos = append(thisOrgRepos, r)
 						}
-						prompt += fmt.Sprintf(" [%s]", strings.Join(shortcuts, ", "))
 					}
-					prompt += ": "
-
-					groupInput, err := PromptLine(prompt)
-					if err != nil {
+					if len(thisOrgRepos) == 0 {
+						fmt.Printf("\nNo active repos found in %s.\n", org)
+						continue
+					}
+					if err := selectAndGroupRepos(cfg, thisOrgRepos, org, &groupNames); err != nil {
 						return err
 					}
-
-					group := ""
-					if groupInput != "" {
-						// Check if it's a numbered shortcut
-						var shortcutNum int
-						if n, parseErr := fmt.Sscanf(groupInput, "%d", &shortcutNum); n == 1 && parseErr == nil {
-							if shortcutNum >= 1 && shortcutNum <= len(groupNames) {
-								group = groupNames[shortcutNum-1]
-							} else {
-								group = groupInput // treat as literal group name
-							}
-						} else {
-							group = groupInput
-						}
-
-						// Track new group names
-						isNew := true
-						for _, g := range groupNames {
-							if g == group {
-								isNew = false
-								break
-							}
-						}
-						if isNew {
-							groupNames = append(groupNames, group)
-						}
-					}
-
-					cfg.AddRepo(repo.FullName, group)
 				}
 			}
 		}
 		fmt.Println()
 	}
 
-	// Step 5: Save config
+	// Step 4: Save config
 	if err := cfg.Save(); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
 
 	fmt.Printf("Config saved to %s\n", config.DefaultPath())
-	fmt.Printf("Watching %d repos across %d orgs.\n\n", len(cfg.Repos), len(cfg.Orgs))
+	fmt.Printf("Watching %d repos", len(cfg.Repos))
+	if len(cfg.Orgs) > 0 {
+		fmt.Printf(" across %d orgs", len(cfg.Orgs))
+	}
+	fmt.Println(".")
+	fmt.Println()
 
-	// Step 6: Best-effort PR fetch
+	// Step 5: Best-effort PR fetch
 	if len(cfg.Repos) == 0 {
 		return nil
 	}
