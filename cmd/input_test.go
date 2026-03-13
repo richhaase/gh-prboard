@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"testing"
+	"time"
 )
 
 func TestParseNumberSelection_Single(t *testing.T) {
@@ -86,6 +87,57 @@ func TestParseNumberSelection_Deduplicate(t *testing.T) {
 	}
 	expected := []int{1, 2, 3}
 	assertIntSliceEqual(t, expected, result)
+}
+
+func TestParseSince_Duration_Days(t *testing.T) {
+	cutoff, err := ParseSince("1d")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := time.Now().Add(-24 * time.Hour)
+	if cutoff.Sub(expected).Abs() > time.Second {
+		t.Errorf("expected ~%v, got %v", expected, cutoff)
+	}
+}
+
+func TestParseSince_Duration_Weeks(t *testing.T) {
+	cutoff, err := ParseSince("2w")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := time.Now().Add(-14 * 24 * time.Hour)
+	if cutoff.Sub(expected).Abs() > time.Second {
+		t.Errorf("expected ~%v, got %v", expected, cutoff)
+	}
+}
+
+func TestParseSince_Duration_Hours(t *testing.T) {
+	cutoff, err := ParseSince("12h")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := time.Now().Add(-12 * time.Hour)
+	if cutoff.Sub(expected).Abs() > time.Second {
+		t.Errorf("expected ~%v, got %v", expected, cutoff)
+	}
+}
+
+func TestParseSince_ISODate(t *testing.T) {
+	cutoff, err := ParseSince("2026-03-10")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := time.Date(2026, 3, 10, 0, 0, 0, 0, time.Local)
+	if !cutoff.Equal(expected) {
+		t.Errorf("expected %v, got %v", expected, cutoff)
+	}
+}
+
+func TestParseSince_Invalid(t *testing.T) {
+	_, err := ParseSince("banana")
+	if err == nil {
+		t.Fatal("expected error for invalid input")
+	}
 }
 
 func assertIntSliceEqual(t *testing.T, expected, actual []int) {

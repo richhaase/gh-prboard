@@ -93,6 +93,38 @@ func ParseNumberSelection(input string, max int) ([]int, error) {
 	return result, nil
 }
 
+// ParseSince parses a duration shorthand (1d, 2w, 12h) or ISO date (2026-03-10)
+// into a time.Time cutoff point.
+func ParseSince(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
+
+	// Try duration shorthands: Nd, Nw (not supported by time.ParseDuration)
+	if len(s) > 1 {
+		suffix := s[len(s)-1]
+		numStr := s[:len(s)-1]
+		if n, err := strconv.Atoi(numStr); err == nil {
+			switch suffix {
+			case 'd':
+				return time.Now().Add(-time.Duration(n) * 24 * time.Hour), nil
+			case 'w':
+				return time.Now().Add(-time.Duration(n) * 7 * 24 * time.Hour), nil
+			}
+		}
+	}
+
+	// Try Go duration (e.g., 12h, 30m)
+	if d, err := time.ParseDuration(s); err == nil {
+		return time.Now().Add(-d), nil
+	}
+
+	// Try ISO date
+	if t, err := time.ParseInLocation("2006-01-02", s, time.Local); err == nil {
+		return t, nil
+	}
+
+	return time.Time{}, fmt.Errorf("invalid --since value %q: use a duration (1d, 2w, 12h) or date (2026-03-10)", s)
+}
+
 // FormatRelativeTime returns a human-friendly relative time string.
 func FormatRelativeTime(t time.Time) string {
 	d := time.Since(t)
