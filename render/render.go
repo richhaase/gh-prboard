@@ -34,7 +34,7 @@ func init() {
 // PRs should already be sorted by attention priority.
 func RenderPRs(prs []github.PR, repoCount int) string {
 	if len(prs) == 0 {
-		return fmt.Sprintf("%sNo open PRs across %d watched repos.%s", dim, repoCount, reset)
+		return fmt.Sprintf("%sNo PRs found across %d watched repos.%s", dim, repoCount, reset)
 	}
 
 	type repoGroup struct {
@@ -66,13 +66,30 @@ func RenderPRs(prs []github.PR, repoCount int) string {
 		}
 		fmt.Fprintf(&b, "%s%s%s\n", bold, g.header, reset)
 		for _, pr := range g.prs {
-			fmt.Fprintf(&b, "  %s#%-5d%s %-40s %s@%-10s%s %s%-4s%s %s  %s\n",
+			var statusStr string
+			switch pr.State {
+			case "merged":
+				if pr.MergedAt != nil {
+					statusStr = green + "✓ merged " + formatAge(time.Since(*pr.MergedAt)) + " ago" + reset
+				} else {
+					statusStr = green + "✓ merged" + reset
+				}
+			case "closed":
+				if pr.ClosedAt != nil {
+					statusStr = red + "✗ closed " + formatAge(time.Since(*pr.ClosedAt)) + " ago" + reset
+				} else {
+					statusStr = red + "✗ closed" + reset
+				}
+			default:
+				statusStr = fmt.Sprintf("%s  %s", formatReviewStatus(pr.ReviewStatus()), formatCheckStatus(pr.Checks))
+			}
+
+			fmt.Fprintf(&b, "  %s#%-5d%s %-40s %s@%-10s%s %s%-4s%s %s\n",
 				cyan, pr.Number, reset,
 				truncate(pr.Title, 40),
 				magenta, pr.Author, reset,
 				dim, formatAge(pr.Age()), reset,
-				formatReviewStatus(pr.ReviewStatus()),
-				formatCheckStatus(pr.Checks),
+				statusStr,
 			)
 		}
 	}
@@ -145,6 +162,9 @@ func renderSummary(prs []github.PR) string {
 	failingCI := 0
 
 	for _, pr := range prs {
+		if pr.State == "merged" || pr.State == "closed" {
+			continue
+		}
 		switch pr.ReviewStatus() {
 		case github.ReviewNone:
 			needsReview++

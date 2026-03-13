@@ -72,8 +72,57 @@ func TestRenderPRs_UngroupedReposShowAsOther(t *testing.T) {
 
 func TestRenderPRs_Empty(t *testing.T) {
 	output := RenderPRs(nil, 5)
-	if !strings.Contains(output, "No open PRs") {
+	if !strings.Contains(output, "No PRs found") {
 		t.Errorf("expected empty message, got:\n%s", output)
+	}
+}
+
+func TestRenderPRs_MergedState(t *testing.T) {
+	now := time.Now()
+	mergedAt := now.Add(-2 * time.Hour)
+	prs := []github.PR{
+		{
+			Repo:      "a/one",
+			Number:    10,
+			Title:     "Add feature",
+			Author:    "alice",
+			CreatedAt: now.Add(-48 * time.Hour),
+			MergedAt:  &mergedAt,
+			State:     "merged",
+			Reviews:   []github.Review{},
+		},
+	}
+
+	output := RenderPRs(prs, 1)
+
+	if !strings.Contains(output, "merged") {
+		t.Errorf("expected 'merged' in output for merged PR, got:\n%s", output)
+	}
+	if strings.Contains(output, "needs review") {
+		t.Errorf("merged PR should not show review status, got:\n%s", output)
+	}
+}
+
+func TestRenderPRs_ClosedState(t *testing.T) {
+	now := time.Now()
+	closedAt := now.Add(-1 * time.Hour)
+	prs := []github.PR{
+		{
+			Repo:      "a/one",
+			Number:    11,
+			Title:     "Old PR",
+			Author:    "bob",
+			CreatedAt: now.Add(-72 * time.Hour),
+			ClosedAt:  &closedAt,
+			State:     "closed",
+			Reviews:   []github.Review{},
+		},
+	}
+
+	output := RenderPRs(prs, 1)
+
+	if !strings.Contains(output, "closed") {
+		t.Errorf("expected 'closed' in output for closed PR, got:\n%s", output)
 	}
 }
 
