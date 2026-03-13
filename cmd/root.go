@@ -178,4 +178,3 @@ func matchCheckStatus(status ghapi.CheckStatus, filter string) bool {
 		return false
 	}
 }
-

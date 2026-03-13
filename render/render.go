@@ -18,7 +18,6 @@ var (
 	red     = "\033[31m"
 	green   = "\033[32m"
 	yellow  = "\033[33m"
-	blue    = "\033[34m"
 	cyan    = "\033[36m"
 	magenta = "\033[35m"
 )
@@ -27,7 +26,7 @@ func init() {
 	// Disable colors if not a terminal (piped output, CI, etc.)
 	if !term.IsTerminal(int(os.Stdout.Fd())) {
 		bold, dim, reset = "", "", ""
-		red, green, yellow, blue, cyan, magenta = "", "", "", "", "", ""
+		red, green, yellow, cyan, magenta = "", "", "", "", ""
 	}
 }
 
