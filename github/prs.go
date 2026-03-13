@@ -61,20 +61,25 @@ func (c CheckStatus) String() string {
 
 type Review struct {
 	State       string
+	Author      string
 	SubmittedAt time.Time
 }
 
 type PR struct {
-	Repo           string
-	RepoGroup      string
-	Number         int
-	Title          string
-	Author         string
-	CreatedAt      time.Time
-	IsDraft        bool
-	LatestCommitAt time.Time
-	Reviews        []Review
-	Checks         CheckStatus
+	Repo                 string
+	RepoGroup            string
+	Number               int
+	Title                string
+	Author               string
+	CreatedAt            time.Time
+	IsDraft              bool
+	LatestCommitAt       time.Time
+	Reviews              []Review
+	Checks               CheckStatus
+	MergedAt             *time.Time
+	ClosedAt             *time.Time
+	ReviewRequestedUsers []string
+	State                string // "open", "merged", "closed"
 }
 
 // ReviewStatus classifies the review state of a PR.
