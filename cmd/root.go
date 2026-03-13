@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/cli/go-gh/v2/pkg/api"
 	"github.com/spf13/cobra"
@@ -22,6 +23,9 @@ var (
 	flagMine          bool
 	flagNeedsReview   bool
 	flagIncludeDrafts bool
+	flagState         string
+	flagSince         string
+	flagReviewer      string
 )
 
 var rootCmd = &cobra.Command{
@@ -39,6 +43,9 @@ func init() {
 	rootCmd.Flags().BoolVar(&flagMine, "mine", false, "show only PRs you authored")
 	rootCmd.Flags().BoolVar(&flagNeedsReview, "needs-review", false, "show only PRs needing review")
 	rootCmd.Flags().BoolVar(&flagIncludeDrafts, "include-drafts", false, "include draft PRs")
+	rootCmd.Flags().StringVar(&flagState, "state", "open", "PR state: open, merged, closed, all")
+	rootCmd.Flags().StringVar(&flagSince, "since", "", "filter by recency: duration (1d, 2w) or date (2026-03-10)")
+	rootCmd.Flags().StringVar(&flagReviewer, "reviewer", "", "filter by reviewer username (use @me for yourself)")
 }
 
 func Execute() error {
@@ -90,7 +97,21 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	prs, err := ghapi.FetchPRs(client, repoNames, []string{"OPEN"})
+	var prStates []string
+	switch strings.ToLower(flagState) {
+	case "open":
+		prStates = []string{"OPEN"}
+	case "merged":
+		prStates = []string{"MERGED"}
+	case "closed":
+		prStates = []string{"CLOSED"}
+	case "all":
+		prStates = []string{"OPEN", "MERGED", "CLOSED"}
+	default:
+		return fmt.Errorf("invalid --state value %q: use open, merged, closed, or all", flagState)
+	}
+
+	prs, err := ghapi.FetchPRs(client, repoNames, prStates)
 	if err != nil {
 		return fmt.Errorf("fetching PRs: %w", err)
 	}
@@ -109,8 +130,27 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if flagReviewer == "@me" {
+		if username == "" {
+			username, err = ghapi.FetchUsername(client)
+			if err != nil {
+				return fmt.Errorf("could not detect username: %w", err)
+			}
+		}
+		flagReviewer = username
+	}
+
+	var sinceCutoff *time.Time
+	if flagSince != "" {
+		t, err := ParseSince(flagSince)
+		if err != nil {
+			return err
+		}
+		sinceCutoff = &t
+	}
+
 	// Apply filters
-	prs = filterPRs(prs, username)
+	prs = filterPRs(prs, username, sinceCutoff)
 
 	// Sort
 	prs = ghapi.SortByAttention(prs)
@@ -119,7 +159,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func filterPRs(prs []ghapi.PR, username string) []ghapi.PR {
+func filterPRs(prs []ghapi.PR, username string, sinceCutoff *time.Time) []ghapi.PR {
 	var filtered []ghapi.PR
 	for _, pr := range prs {
 		if !flagIncludeDrafts && pr.IsDraft {
@@ -146,6 +186,45 @@ func filterPRs(prs []ghapi.PR, username string) []ghapi.PR {
 		if flagCI != "" && !matchCheckStatus(pr.Checks, flagCI) {
 			continue
 		}
+
+		// --since filter
+		if sinceCutoff != nil {
+			var ts time.Time
+			switch {
+			case pr.MergedAt != nil:
+				ts = *pr.MergedAt
+			case pr.ClosedAt != nil:
+				ts = *pr.ClosedAt
+			default:
+				ts = pr.CreatedAt
+			}
+			if ts.Before(*sinceCutoff) {
+				continue
+			}
+		}
+
+		// --reviewer filter
+		if flagReviewer != "" {
+			found := false
+			for _, u := range pr.ReviewRequestedUsers {
+				if strings.EqualFold(u, flagReviewer) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				for _, r := range pr.Reviews {
+					if strings.EqualFold(r.Author, flagReviewer) {
+						found = true
+						break
+					}
+				}
+			}
+			if !found {
+				continue
+			}
+		}
+
 		filtered = append(filtered, pr)
 	}
 	return filtered
