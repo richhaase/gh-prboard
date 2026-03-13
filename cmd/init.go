@@ -43,9 +43,8 @@ func promptSelection(prompt string, max int) ([]int, error) {
 	}
 }
 
-// selectAndGroupRepos displays a list of repos, lets the user pick, then assign groups.
-// groupNames is carried across calls so shortcuts accumulate.
-func selectAndGroupRepos(cfg *config.Config, repos []ghapi.DiscoveredRepo, label string, groupNames *[]string) error {
+// selectRepos displays a list of repos and lets the user pick which to watch.
+func selectRepos(cfg *config.Config, repos []ghapi.DiscoveredRepo, label string) error {
 	if len(repos) > repoDisplayCap {
 		repos = repos[:repoDisplayCap]
 	}
@@ -61,52 +60,8 @@ func selectAndGroupRepos(cfg *config.Config, repos []ghapi.DiscoveredRepo, label
 		return err
 	}
 
-	fmt.Println("\nAssign groups to repos (enter to skip):")
 	for _, repoIdx := range indices {
-		repo := repos[repoIdx-1]
-		prompt := fmt.Sprintf("  %s group", repo.FullName)
-		if len(*groupNames) > 0 {
-			shortcuts := make([]string, len(*groupNames))
-			for i, g := range *groupNames {
-				shortcuts[i] = fmt.Sprintf("%d=%s", i+1, g)
-			}
-			prompt += fmt.Sprintf(" [%s]", strings.Join(shortcuts, ", "))
-		}
-		prompt += ": "
-
-		groupInput, err := PromptLine(prompt)
-		if err != nil {
-			return err
-		}
-
-		group := ""
-		if groupInput != "" {
-			// Check if it's a numbered shortcut
-			var shortcutNum int
-			if n, parseErr := fmt.Sscanf(groupInput, "%d", &shortcutNum); n == 1 && parseErr == nil {
-				if shortcutNum >= 1 && shortcutNum <= len(*groupNames) {
-					group = (*groupNames)[shortcutNum-1]
-				} else {
-					group = groupInput
-				}
-			} else {
-				group = groupInput
-			}
-
-			// Track new group names
-			isNew := true
-			for _, g := range *groupNames {
-				if g == group {
-					isNew = false
-					break
-				}
-			}
-			if isNew {
-				*groupNames = append(*groupNames, group)
-			}
-		}
-
-		cfg.AddRepo(repo.FullName, group)
+		cfg.AddRepo(repos[repoIdx-1].FullName, "")
 	}
 
 	return nil
@@ -152,8 +107,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 	cfg.Defaults.Username = username
 	cfg.Defaults.HideDrafts = true
 
-	var groupNames []string
-
 	// Step 2: Discover personal repos
 	fmt.Println("Discovering your repos...")
 	userRepos, err := ghapi.DiscoverUserRepos(client)
@@ -165,7 +118,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if len(recentUserRepos) == 0 {
 		fmt.Println("No personal repos found with activity in the last 90 days.")
 	} else {
-		if err := selectAndGroupRepos(cfg, recentUserRepos, username, &groupNames); err != nil {
+		if err := selectRepos(cfg, recentUserRepos, username); err != nil {
 			return err
 		}
 	}
@@ -230,7 +183,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 						fmt.Printf("\nNo active repos found in %s.\n", org)
 						continue
 					}
-					if err := selectAndGroupRepos(cfg, thisOrgRepos, org, &groupNames); err != nil {
+					if err := selectRepos(cfg, thisOrgRepos, org); err != nil {
 						return err
 					}
 				}
