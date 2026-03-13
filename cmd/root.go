@@ -90,7 +90,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	prs, err := ghapi.FetchPRs(client, repoNames)
+	prs, err := ghapi.FetchPRs(client, repoNames, []string{"OPEN"})
 	if err != nil {
 		return fmt.Errorf("fetching PRs: %w", err)
 	}

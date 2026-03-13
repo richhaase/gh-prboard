@@ -127,9 +127,9 @@ func SortByAttention(prs []PR) []PR {
 	return sorted
 }
 
-// FetchPRs queries GitHub for open PRs across the given repos.
-// repos should be in "owner/name" format.
-func FetchPRs(client *api.GraphQLClient, repos []string) ([]PR, error) {
+// FetchPRs queries GitHub for PRs across the given repos filtered by states.
+// repos should be in "owner/name" format. states are GitHub PullRequestState values (e.g. "OPEN", "MERGED", "CLOSED").
+func FetchPRs(client *api.GraphQLClient, repos []string, states []string) ([]PR, error) {
 	if len(repos) == 0 {
 		return nil, nil
 	}
@@ -142,7 +142,7 @@ func FetchPRs(client *api.GraphQLClient, repos []string) ([]PR, error) {
 		if end > len(repos) {
 			end = len(repos)
 		}
-		batch, err := fetchPRBatch(client, repos[i:end])
+		batch, err := fetchPRBatch(client, repos[i:end], states)
 		if err != nil {
 			return nil, err
 		}
@@ -152,10 +152,13 @@ func FetchPRs(client *api.GraphQLClient, repos []string) ([]PR, error) {
 	return prs, nil
 }
 
-func fetchPRBatch(client *api.GraphQLClient, repos []string) ([]PR, error) {
+func fetchPRBatch(client *api.GraphQLClient, repos []string, states []string) ([]PR, error) {
 	var queryParts []string
 	var varDecls []string
 	variables := map[string]interface{}{}
+
+	varDecls = append(varDecls, "$states: [PullRequestState!]!")
+	variables["states"] = states
 
 	for i, repo := range repos {
 		parts := strings.SplitN(repo, "/", 2)
@@ -167,12 +170,14 @@ func fetchPRBatch(client *api.GraphQLClient, repos []string) ([]PR, error) {
 			fmt.Sprintf("$owner_%d: String!, $name_%d: String!", i, i))
 		queryParts = append(queryParts, fmt.Sprintf(`
 			%s: repository(owner: $owner_%d, name: $name_%d) {
-				pullRequests(states: OPEN, first: 10, orderBy: {field: CREATED_AT, direction: DESC}) {
+				pullRequests(states: $states, first: 10, orderBy: {field: CREATED_AT, direction: DESC}) {
 					nodes {
 						number
 						title
 						isDraft
 						createdAt
+						mergedAt
+						closedAt
 						author { login }
 						commits(last: 1) {
 							nodes {
@@ -182,10 +187,18 @@ func fetchPRBatch(client *api.GraphQLClient, repos []string) ([]PR, error) {
 								}
 							}
 						}
+						reviewRequests(first: 10) {
+							nodes {
+								requestedReviewer {
+									... on User { login }
+								}
+							}
+						}
 						latestReviews(last: 10) {
 							nodes {
 								state
 								submittedAt
+								author { login }
 							}
 						}
 					}
@@ -217,10 +230,12 @@ func fetchPRBatch(client *api.GraphQLClient, repos []string) ([]PR, error) {
 		var repoData struct {
 			PullRequests struct {
 				Nodes []struct {
-					Number    int       `json:"number"`
-					Title     string    `json:"title"`
-					IsDraft   bool      `json:"isDraft"`
-					CreatedAt time.Time `json:"createdAt"`
+					Number    int        `json:"number"`
+					Title     string     `json:"title"`
+					IsDraft   bool       `json:"isDraft"`
+					CreatedAt time.Time  `json:"createdAt"`
+					MergedAt  *time.Time `json:"mergedAt"`
+					ClosedAt  *time.Time `json:"closedAt"`
 					Author    struct {
 						Login string `json:"login"`
 					} `json:"author"`
@@ -234,10 +249,20 @@ func fetchPRBatch(client *api.GraphQLClient, repos []string) ([]PR, error) {
 							} `json:"commit"`
 						} `json:"nodes"`
 					} `json:"commits"`
+					ReviewRequests struct {
+						Nodes []struct {
+							RequestedReviewer struct {
+								Login string `json:"login"`
+							} `json:"requestedReviewer"`
+						} `json:"nodes"`
+					} `json:"reviewRequests"`
 					LatestReviews struct {
 						Nodes []struct {
 							State       string    `json:"state"`
 							SubmittedAt time.Time `json:"submittedAt"`
+							Author      struct {
+								Login string `json:"login"`
+							} `json:"author"`
 						} `json:"nodes"`
 					} `json:"latestReviews"`
 				} `json:"nodes"`
@@ -256,6 +281,17 @@ func fetchPRBatch(client *api.GraphQLClient, repos []string) ([]PR, error) {
 				Author:    node.Author.Login,
 				CreatedAt: node.CreatedAt,
 				IsDraft:   node.IsDraft,
+				MergedAt:  node.MergedAt,
+				ClosedAt:  node.ClosedAt,
+			}
+
+			// Determine state
+			if node.MergedAt != nil {
+				pr.State = "merged"
+			} else if node.ClosedAt != nil {
+				pr.State = "closed"
+			} else {
+				pr.State = "open"
 			}
 
 			if len(node.Commits.Nodes) > 0 {
@@ -271,10 +307,17 @@ func fetchPRBatch(client *api.GraphQLClient, repos []string) ([]PR, error) {
 				}
 			}
 
+			for _, rr := range node.ReviewRequests.Nodes {
+				if rr.RequestedReviewer.Login != "" {
+					pr.ReviewRequestedUsers = append(pr.ReviewRequestedUsers, rr.RequestedReviewer.Login)
+				}
+			}
+
 			for _, review := range node.LatestReviews.Nodes {
 				if review.State == "APPROVED" || review.State == "CHANGES_REQUESTED" {
 					pr.Reviews = append(pr.Reviews, Review{
 						State:       review.State,
+						Author:      review.Author.Login,
 						SubmittedAt: review.SubmittedAt,
 					})
 				}

@@ -219,7 +219,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		groupLookup[r.Name] = r.Group
 	}
 
-	prs, err := ghapi.FetchPRs(client, repoNames)
+	prs, err := ghapi.FetchPRs(client, repoNames, []string{"OPEN"})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not fetch PRs: %v\n", err)
 		fmt.Fprintln(os.Stderr, "Config was saved successfully. Run `gh prboard` to try again.")
