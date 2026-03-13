@@ -2,17 +2,40 @@ package render
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/richhaase/gh-prboard/github"
+	"golang.org/x/term"
 )
+
+// ANSI color codes
+var (
+	bold    = "\033[1m"
+	dim     = "\033[2m"
+	reset   = "\033[0m"
+	red     = "\033[31m"
+	green   = "\033[32m"
+	yellow  = "\033[33m"
+	blue    = "\033[34m"
+	cyan    = "\033[36m"
+	magenta = "\033[35m"
+)
+
+func init() {
+	// Disable colors if not a terminal (piped output, CI, etc.)
+	if !term.IsTerminal(int(os.Stdout.Fd())) {
+		bold, dim, reset = "", "", ""
+		red, green, yellow, blue, cyan, magenta = "", "", "", "", "", ""
+	}
+}
 
 // RenderPRs formats a list of PRs into the terminal output format.
 // PRs should already be sorted by attention priority.
 func RenderPRs(prs []github.PR, repoCount int) string {
 	if len(prs) == 0 {
-		return fmt.Sprintf("No open PRs across %d watched repos.", repoCount)
+		return fmt.Sprintf("%sNo open PRs across %d watched repos.%s", dim, repoCount, reset)
 	}
 
 	type repoGroup struct {
@@ -42,13 +65,13 @@ func RenderPRs(prs []github.PR, repoCount int) string {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		fmt.Fprintf(&b, "## %s\n\n", g.header)
+		fmt.Fprintf(&b, "%s%s%s\n", bold, g.header, reset)
 		for _, pr := range g.prs {
-			fmt.Fprintf(&b, "  #%-5d %-40s @%-10s %-4s %s   %s\n",
-				pr.Number,
+			fmt.Fprintf(&b, "  %s#%-5d%s %-40s %s@%-10s%s %s%-4s%s %s  %s\n",
+				cyan, pr.Number, reset,
 				truncate(pr.Title, 40),
-				pr.Author,
-				formatAge(pr.Age()),
+				magenta, pr.Author, reset,
+				dim, formatAge(pr.Age()), reset,
 				formatReviewStatus(pr.ReviewStatus()),
 				formatCheckStatus(pr.Checks),
 			)
@@ -92,13 +115,13 @@ func formatAge(d time.Duration) string {
 func formatReviewStatus(status github.ReviewStatusType) string {
 	switch status {
 	case github.ReviewNone:
-		return "● needs review"
+		return yellow + "● needs review" + reset
 	case github.ReviewReReviewNeeded:
-		return "↻ re-review needed"
+		return yellow + "↻ re-review needed" + reset
 	case github.ReviewChangesRequested:
-		return "⚠ changes requested"
+		return red + "⚠ changes requested" + reset
 	case github.ReviewApproved:
-		return "✓ approved"
+		return green + "✓ approved" + reset
 	default:
 		return "? unknown"
 	}
@@ -107,11 +130,11 @@ func formatReviewStatus(status github.ReviewStatusType) string {
 func formatCheckStatus(status github.CheckStatus) string {
 	switch status {
 	case github.CheckPassing:
-		return "✓ CI"
+		return green + "✓ CI" + reset
 	case github.CheckFailing:
-		return "✗ CI failing"
+		return red + "✗ CI failing" + reset
 	case github.CheckPending:
-		return "◌ CI pending"
+		return dim + "◌ CI pending" + reset
 	default:
 		return ""
 	}
@@ -140,25 +163,25 @@ func renderSummary(prs []github.PR) string {
 		if needsReview == 1 {
 			noun = "PR needs"
 		}
-		parts = append(parts, fmt.Sprintf("%d %s review", needsReview, noun))
+		parts = append(parts, fmt.Sprintf("%s%d %s review%s", yellow, needsReview, noun, reset))
 	}
 	if needsReReview > 0 {
 		noun := "need"
 		if needsReReview == 1 {
 			noun = "needs"
 		}
-		parts = append(parts, fmt.Sprintf("%d %s re-review", needsReReview, noun))
+		parts = append(parts, fmt.Sprintf("%s%d %s re-review%s", yellow, needsReReview, noun, reset))
 	}
 	if failingCI > 0 {
 		verb := "have"
 		if failingCI == 1 {
 			verb = "has"
 		}
-		parts = append(parts, fmt.Sprintf("%d %s failing CI", failingCI, verb))
+		parts = append(parts, fmt.Sprintf("%s%d %s failing CI%s", red, failingCI, verb, reset))
 	}
 
 	if len(parts) == 0 {
-		return "All PRs look good."
+		return green + "All PRs look good." + reset
 	}
 
 	return strings.Join(parts, " · ")
