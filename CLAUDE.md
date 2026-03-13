@@ -1,6 +1,6 @@
 # gh-prboard
 
-GitHub CLI extension that shows open PRs needing attention across watched repos.
+GitHub CLI extension that shows PRs needing attention across watched repos with composable filters.
 
 ## Build & Test
 
@@ -19,9 +19,9 @@ Single test: `go test ./cmd/... -run TestParseNumber -v`
 ```
 main.go              # entry point, version ldflags injection
 cmd/                  # cobra commands
-  root.go             # main PR display with filters (--mine, --group, etc.)
+  root.go             # main PR display with filters (--mine, --group, --state, --since, --reviewer, etc.)
   init.go             # interactive setup wizard
-  input.go            # shared input parsing (ParseNumberSelection, PromptLine, FormatRelativeTime)
+  input.go            # shared input parsing (ParseNumberSelection, ParseSince, PromptLine, FormatRelativeTime)
   repos*.go           # repo management subcommands (add, remove, list, discover)
   version.go          # version command
 config/               # YAML config at ~/.config/gh-prboard/config.yml
